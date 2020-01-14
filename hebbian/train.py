@@ -1,0 +1,220 @@
+import numpy as np
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+import gym 
+import matplotlib.pyplot as plt
+import copy
+import time
+import os
+
+import pybullet
+import pybullet_envs
+
+from policies import DirectedHebbianGraph
+
+def normalize_rewards(rewards):
+    return (rewards - torch.mean(rewards)) / torch.std(rewards)
+
+def get_advantage(t_rew, t_done, gamma=0.9):
+
+    t_adv = torch.zeros_like(t_rew)
+    t_adv[-1] = t_rew[-1]
+    
+    for idx in range (t_rew.shape[0]-2,-1,-1):
+        
+        t_adv[idx] = (1 - t_done[idx]) * gamma * t_adv[idx+1]\
+                + t_rew[idx]
+
+    #t_adv -= torch.mean(t_adv)
+
+    # normalize advantage? 
+    t_adv = normalize_rewards(t_adv)
+
+    return t_adv
+
+def print_stats(epoch, t_rew, t_done, total_env_interacts):
+
+    epd_rewards = []
+    epd_sum = 0.0
+    for ii in range(t_rew.shape[0]):
+        if t_done[ii]: 
+            epd_rewards.append(epd_sum)
+            epd_sum = 0.0
+        else:
+            epd_sum += t_rew[ii]
+    
+    mean_rew = torch.sum(t_rew)/(torch.sum(t_done)+1)
+    mean_ep_len = t_rew.shape[0]/ (torch.sum(t_done)+1)
+    std_rew = np.std(epd_rewards)
+    max_rew = np.max(epd_rewards)
+    min_rew = np.min(epd_rewards)
+
+    print("""
+    _________________________________
+    | epoch:                {}       
+    | total_env_interacts:  {:.2e}|
+    | mean_ep_len:          {:.2e}|
+    | mean_rew:             {:.2e}|
+    | std_rew:              {:.2e}|
+    | max_rew:              {:.2e}|
+    | min_rew:              {:.2e}|
+    |_______________________________|
+    """.format(epoch, total_env_interacts, mean_ep_len, mean_rew, std_rew,\
+            max_rew, min_rew))
+
+    return mean_rew, mean_ep_len, std_rew, max_rew, min_rew
+
+
+
+
+def train_evo():
+
+    # set up hyperparameters/parameters
+    env_name = "InvertedPendulumBulletEnv-v0"
+    hid_dims = [16,16]
+    clamp_value = 0.0
+    steps_per_epoch = 4000
+    epochs = 3000
+    sigma = 0.1
+    gamma = 0.90
+    batch_size = 4000
+    save_every = 1000
+
+    # define env, obs and action spaces
+    print("making env", env_name)
+    env = gym.make(env_name)
+
+    obs_dim = env.observation_space.shape[0]
+    act_dim = env.action_space.sample().shape[0]
+    # initialize agent(s)
+
+
+def train_backprop():
+
+    # set up hyperparameters/parameters
+    env_name = "InvertedPendulumBulletEnv-v0"
+    hid_dims = [16,16]
+    clamp_value = 0.0
+    steps_per_epoch = 11000
+    epochs = 3000
+    sigma = 0.15
+    gamma = 0.90
+    batch_size = 11000
+    save_every = 1000
+    lr = 1e-2
+
+    # define env, obs and action spaces
+    print("making env", env_name)
+    env = gym.make(env_name)
+
+    obs_dim = env.observation_space.shape[0]
+    act_dim = env.action_space.sample().shape[0]
+    # initialize agent(s)
+
+    agent = DirectedHebbianGraph(input_dim=obs_dim, output_dim=act_dim,\
+            hid_dims=hid_dims)
+    optimizer = torch.optim.SGD(agent.parameters(), lr=lr)
+    agent.clamp_value = 1e-6 # first validate vpg w/o Hebbian traces
+
+    # train
+    total_env_interacts = 0
+
+    #exp_id = "exp_" + exp_time + "env_" +\
+    #        env_name + "_s" + str(my_seed)
+    results = {"epoch": [],\
+            "total_env_interacts": [],\
+            "wall_time": [],\
+            "mean_rew": [],\
+            "std_rew": [],\
+            "max_rew": [],\
+            "min_rew": []\
+            }
+
+    for my_seed in [0,1,2]:
+
+        exp_id = "test_vpg" + str(my_seed)
+        torch.manual_seed(my_seed)
+        np.random.seed(my_seed)
+
+        t0 = time.time()
+        for epoch in range(epochs):
+            # set up training buffer tensors
+            t_rew = torch.Tensor()
+            t_done = torch.Tensor()
+            t_act = torch.Tensor()
+            t_mu = torch.Tensor()
+            step = 0
+            done = True
+            while step < steps_per_epoch:
+                
+                if done:
+                    done = False
+                    obs = env.reset()
+                    agent.reset_hebbians()
+                
+                mu = agent.forward(torch.Tensor(obs)\
+                        .reshape(1,obs.shape[0]))
+                mu = nn.Tanh()(mu)
+
+                #mu = torch.matmul(torch.Tensor(obs)\
+                #        .reshape(1,obs.shape[0]),agent.x2y)[:,0:-1]
+
+                # TODO: update to use multinomial and learn std dev as well
+                #action = mu + sigma * torch.randn(1,mu.shape[0]) 
+                action = torch.normal(mean=mu, std=sigma)
+
+                obs, rew, done, info = env.step(action.detach().numpy())
+
+                t_rew = torch.cat((t_rew, torch.Tensor(np.array(rew))\
+                        .reshape(1,1)),dim=0)
+                t_done = torch.cat((t_done, torch.Tensor(np.array(1.0*done))\
+                        .reshape(1,1)), dim=0)
+                t_act = torch.cat((t_act, torch.Tensor(action)\
+                        .reshape(1,action.shape[0])), dim=0)
+                t_mu = torch.cat((t_mu, torch.Tensor(mu)\
+                        .reshape(1,mu.shape[0])), dim=0)
+
+                step += 1
+
+            t_adv = get_advantage(t_rew, t_done, gamma=gamma)
+            total_env_interacts += step
+
+            for batch_start in range(0,t_adv.shape[0],batch_size):
+
+                agent.zero_grad()
+                batch_end = batch_start + batch_size
+
+                # REINFORCE type loss function 
+                pseudo_loss = -torch.mean(t_adv[batch_start:batch_end]\
+                        * 1./2. *  (t_mu[batch_start:batch_end] \
+                        - t_act[batch_start:batch_end])**2 / sigma**2)
+
+                pseudo_loss.backward(retain_graph=True)
+                optimizer.step()
+
+
+            mean_rew, mean_ep_len, std_rew, max_rew, min_rew = \
+                print_stats(epoch, t_rew, t_done, total_env_interacts)
+            
+            print(torch.mean(agent.x2y.grad))
+            results["epoch"] = epoch
+            results["total_env_interacts"] = total_env_interacts
+            results["wall_time"] = time.time() - t0
+            results["mean_rew"] = mean_rew
+            results["std_rew"] = std_rew 
+            results["max_rew"] = max_rew
+            results["min_rew"] = min_rew
+
+
+            if epoch % save_every == 0:
+                np.save("./results/{}.npy"\
+                        .format(exp_id),results)
+                torch.save(agent.state_dict(),"./models/{}_epoch_{}.h5"\
+                        .format(exp_id, epoch)) 
+
+
+if __name__ == "__main__":
+    train_evo()
+    train_backprop()
