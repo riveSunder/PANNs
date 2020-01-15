@@ -15,7 +15,7 @@ import pybullet_envs
 from policies import DirectedHebbianGraph
 
 def normalize_rewards(rewards):
-    return (rewards - torch.mean(rewards)) / torch.std(rewards)
+    return rewards #(rewards - torch.mean(rewards)) / torch.std(rewards)
 
 def get_advantage(t_rew, t_done, gamma=0.9):
 
@@ -75,11 +75,11 @@ def train_evo():
     env_name = "InvertedPendulumBulletEnv-v0"
     hid_dims = [16,16]
     clamp_value = 0.0
-    steps_per_epoch = 4000
+    steps_per_epoch = 10000
     epochs = 3000
-    sigma = 0.1
+    sigma = 0.5
     gamma = 0.90
-    batch_size = 4000
+    batch_size = 10000
     save_every = 1000
 
     # define env, obs and action spaces
@@ -97,13 +97,13 @@ def train_backprop():
     env_name = "InvertedPendulumBulletEnv-v0"
     hid_dims = [16,16]
     clamp_value = 0.0
-    steps_per_epoch = 11000
+    steps_per_epoch = 10000
     epochs = 3000
-    sigma = 0.15
+    sigma = 1.0
     gamma = 0.90
-    batch_size = 11000
+    batch_size = 10000
     save_every = 1000
-    lr = 1e-2
+    lr = 1e-3
 
     # define env, obs and action spaces
     print("making env", env_name)
@@ -189,7 +189,7 @@ def train_backprop():
                 # REINFORCE type loss function 
                 pseudo_loss = -torch.mean(t_adv[batch_start:batch_end]\
                         * 1./2. *  (t_mu[batch_start:batch_end] \
-                        - t_act[batch_start:batch_end])**2 / sigma**2)
+                        - t_act[batch_start:batch_end])**2 )
 
                 pseudo_loss.backward(retain_graph=True)
                 optimizer.step()
@@ -198,7 +198,7 @@ def train_backprop():
             mean_rew, mean_ep_len, std_rew, max_rew, min_rew = \
                 print_stats(epoch, t_rew, t_done, total_env_interacts)
             
-            print(torch.mean(agent.x2y.grad))
+            print(torch.mean(agent.x2h0.grad))
             results["epoch"] = epoch
             results["total_env_interacts"] = total_env_interacts
             results["wall_time"] = time.time() - t0
