@@ -16,14 +16,14 @@ import pybullet_envs
 
 class DHGPopulation():
 
-    def __init__(self, input_dim, output_dim, agent_fn, population_size=96,\
-            clamp_value=1e-3):
+    def __init__(self, input_dim, output_dim, agent_fn, population_size=64,\
+            clamp_value=1e-3, no_traces=False):
 
         self.population_size = population_size
         self.population = []
         for idx in range(self.population_size):
             self.population.append(agent_fn(input_dim=input_dim,\
-                    output_dim = output_dim, requires_grad=False))
+                    output_dim = output_dim, requires_grad=False, no_traces=no_traces))
             self.population[idx].clamp_value = clamp_value 
 
         self.best_gen = -float("Inf")
@@ -33,7 +33,7 @@ class DHGPopulation():
         self.variance = 1e-1 * torch.ones(self.population[0].total_params)
 
 
-    def get_fitness(self, env, epds=6):
+    def get_fitness(self, env, epds=8):
 
         fitness = []
         complexity = []
@@ -103,10 +103,16 @@ class DHGPopulation():
 
             pop_params = np.array([])
             agent = self.population[agent_idx]
-            for params in [agent.x2y, agent.x2h0, agent.x2h1,\
-                    agent.h02y, agent.h02h1, agent.h12y]:
-                pop_params = np.append(pop_params, \
-                        params.detach().numpy().ravel())
+            if (0):
+                for params in [agent.x2y, agent.x2h0, agent.x2h1,\
+                        agent.h02y, agent.h02h1, agent.h12y]:
+                    pop_params = np.append(pop_params, \
+                            params.detach().numpy().ravel())
+            else:
+                for params in [agent.x2h0, agent.h02h1, agent.h12y]:
+                    pop_params = np.append(pop_params, \
+                            params.detach().numpy().ravel())
+
             pop_mean += torch.tensor(pop_params,requires_grad=False)
 
         pop_mean = pop_mean / len(self.population)
@@ -120,10 +126,15 @@ class DHGPopulation():
 
             agent_params = np.array([])
             agent = self.population[agent_idx]
-            for params in [agent.x2y, agent.x2h0, agent.x2h1,\
-                    agent.h02y, agent.h02h1, agent.h12y]:
-                agent_params = np.append(agent_params, \
-                        params.detach().numpy().ravel())
+            if(0):
+                for params in [agent.x2y, agent.x2h0, agent.x2h1,\
+                        agent.h02y, agent.h02h1, agent.h12y]:
+                    agent_params = np.append(agent_params, \
+                            params.detach().numpy().ravel())
+            else:
+                for params in [agent.x2h0, agent.h02h1, agent.h12y]:
+                    agent_params = np.append(agent_params, \
+                            params.detach().numpy().ravel())
 
             elite_params = torch.cat((elite_params,torch.Tensor(agent_params)\
                     .reshape(1,agent_params.shape[0])))
@@ -146,14 +157,47 @@ class DHGPopulation():
                     variance=covariance)
         self.population.append(self.elite_agent)
 
-    def train(self, env, generations=1000):
+    def train(self, env, generations=50, results_dir="./", model_dir="./",\
+            seeds = [0,1,2]):
+        epds = 4
+        save_every = 50
+
+        total_env_interacts = 0
+        t0 = time.time()
+
+        results = {"epoch": [],\
+            "total_env_interacts": [],\
+            "wall_time": [],\
+            "mean_rew": [],\
+            "std_rew": [],\
+            "max_rew": [],\
+            "min_rew": []\
+            }
 
         for generation in range(generations):
-            fitness, total_steps = self.get_fitness(env)
+            fitness, total_steps = self.get_fitness(env, epds=epds)
+            total_env_interacts += total_steps
+
             self.update_pop(fitness)
 
-            print("generation {} max/mean fitness: {}/{}"\
-                    .format(generation, np.max(fitness), np.mean(fitness)))
+            print("generation {} max/mean +/- std fitness: {:.3e}/{:.3e} +/- {:.3e}"\
+                    .format(generation, np.max(fitness), np.mean(fitness), np.std(fitness)))
+
+            print("time: {:.3f}, total_env_interact: {}".format(time.time()-t0, total_env_interacts))
+            
+            results["epoch"] = generation
+            results["total_env_interacts"] = total_env_interacts
+            results["wall_time"] = time.time() - t0
+            results["mean_rew"] = np.mean(fitness)
+            results["std_rew"] = np.std(fitness)
+            results["max_rew"] = np.max(fitness)
+            results["min_rew"] = np.min(fitness)
+
+
+            if generation % save_every == 0:
+                print("saving results and elite agent")
+                np.save(results_dir,results)
+                torch.save(agents.elite_agent.state_dict(), model_dir)
 
 class HebbianMLP(nn.Module):
     """
@@ -162,9 +206,9 @@ class HebbianMLP(nn.Module):
     (x)-->h0-->h1-->(y)
 
     """
-    def __init__(self, input_dim, output_dimm, hid_dims=[16,16], \
+    def __init__(self, input_dim, output_dim, hid_dims=[16,16], \
             requires_grad=True, no_traces=False):
-        super(DirectedHebbianGraph, self).__init__()
+        super(HebbianMLP, self).__init__()
 
 
         self.input_dim = input_dim
@@ -262,11 +306,11 @@ class HebbianMLP(nn.Module):
                     .reshape(self.input_dim, self.hid_dims[0])
 
             dim_h02h1 = self.hid_dims[0] * self.hid_dims[1] + dim_x2h0
-            self.h02h1 = nn.Parameter(params[dim_x2h    0:dim_h02h1],\
+            self.h02h1 = nn.Parameter(params[dim_x2h0:dim_h02h1],\
                     requires_grad=self.requires_grad)\
                     .reshape(self.hid_dims[0], self.hid_dims[1])
 
-            dim_h12y = self.hid_dims[1] * self.output_dim +  dim_h02h
+            dim_h12y = self.hid_dims[1] * self.output_dim +  dim_h02h1
             self.h12y = nn.Parameter(params[dim_h02h1:dim_h12y],\
                     requires_grad=self.requires_grad)\
                     .reshape(self.hid_dims[1], self.output_dim)
@@ -278,7 +322,7 @@ class HebbianMLP(nn.Module):
         self.heb_x2h0 = torch.zeros(self.input_dim, self.hid_dims[0],\
                 requires_grad=False)
 
-        self.heb_h02h1 = torch.zeros(self.hid_dims[0], sddelf.hid_dims[1],\
+        self.heb_h02h1 = torch.zeros(self.hid_dims[0], self.hid_dims[1],\
                 requires_grad=False)
 
         self.heb_h12y = torch.zeros(self.hid_dims[1], self.output_dim,\
@@ -469,48 +513,51 @@ class DirectedHebbianGraph(nn.Module):
 
 if __name__ == "__main__":
 
-    x = torch.randn(128, 8)
-    y = torch.randn(128, 1)
+#    x = torch.randn(128, 8)
+#    y = torch.randn(128, 1)
+#
+#    model = DirectedHebbianGraph(input_dim=x.shape[1], output_dim=y.shape[1])
+#    optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
+#    model.clamp_value = 1e-5
+#    print(model)
+#
+#    print(model.parameters)
+#
+#    for step in range(20):
+#
+#        model.zero_grad()
+#
+#        y_pred = model(x)
+#
+#        loss = torch.mean(torch.pow(y_pred-y,2))
+#
+#        loss.backward(retain_graph=True)
+#        optimizer.step()
+#
+#        if step % 10 == 0:
+#            print("loss at step {} = {:.3f}".format(step,loss))
 
-    model = DirectedHebbianGraph(input_dim=x.shape[1], output_dim=y.shape[1])
-    optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
-    model.clamp_value = 1e-5
-    print(model)
+    for my_seed in [0,1,2]:
+        torch.manual_seed(my_seed)
+        np.random.seed(my_seed)
 
-    print(model.parameters)
+        for clamp_value in [0.0, 3e-1]:
+            env = gym.make("InvertedPendulumSwingupBulletEnv-v0")
+            act_dim = 1
+            obs_dim = 5
 
-    for step in range(20):
+            agent_fn = HebbianMLP
 
-        model.zero_grad()
+            agents = DHGPopulation(input_dim=obs_dim, output_dim=act_dim, \
+                    agent_fn=agent_fn,clamp_value=3e-1)
 
-        y_pred = model(x)
+            if clamp_value:
+                model_dir = "models/sd{}_epann_exp_es_000.h5".format(my_seed)
+                results_dir = "results/sd{}_epann_exp_es_000.npy".format(my_seed)
+            else:
+                model_dir = "models/sd{}_eann_exp_es_000.h5".format(my_seed)
+                results_dir = "results/sd{}_eann_exp_es_000.npy".format(my_seed)
 
-        loss = torch.mean(torch.pow(y_pred-y,2))
+            agents.train(env, results_dir=results_dir, model_dir=model_dir)
 
-        loss.backward(retain_graph=True)
-        optimizer.step()
-
-        if step % 10 == 0:
-            print("loss at step {} = {:.3f}".format(step,loss))
-
-
-    env = gym.make("InvertedPendulumBulletEnv-v0")
-    act_dim = 1
-    obs_dim = 5
-
-    agent_fn = HebbianMLP
-
-    agents = DHGPopulation(input_dim=obs_dim, output_dim=act_dim, \
-            agent_fn=agent_fn)
-
-    agents.train(env)
-
-    import pdb; pdb.set_trace()
-
-    agents = DHGPopulation(input_dim=obs_dim, output_dim=act_dim, \
-            agent_fn=agent_fn,clamp_value=1e-9)
-
-    agents.train(env)
-
-    import pdb; pdb.set_trace()
 

@@ -12,7 +12,7 @@ import os
 import pybullet
 import pybullet_envs
 
-from policies import DirectedHebbianGraph
+from policies import DirectedHebbianGraph, HebbianMLP
 
 def normalize_rewards(rewards):
     return rewards #(rewards - torch.mean(rewards)) / torch.std(rewards)
@@ -99,7 +99,7 @@ def train_backprop():
     clamp_value = 0.0
     steps_per_epoch = 10000
     epochs = 3000
-    sigma = 1.0
+    sigma = 0.10
     gamma = 0.90
     batch_size = 10000
     save_every = 1000
@@ -113,7 +113,9 @@ def train_backprop():
     act_dim = env.action_space.sample().shape[0]
     # initialize agent(s)
 
-    agent = DirectedHebbianGraph(input_dim=obs_dim, output_dim=act_dim,\
+    #agent = DirectedHebbianGraph(input_dim=obs_dim, output_dim=act_dim,\
+    #        hid_dims=hid_dims)
+    agent = HebbianMLP(input_dim=obs_dim, output_dim=act_dim,\
             hid_dims=hid_dims)
     optimizer = torch.optim.SGD(agent.parameters(), lr=lr)
     agent.clamp_value = 1e-6 # first validate vpg w/o Hebbian traces
