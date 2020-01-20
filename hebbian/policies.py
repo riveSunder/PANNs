@@ -157,22 +157,35 @@ class DHGPopulation():
                     variance=covariance)
         self.population.append(self.elite_agent)
 
-    def train(self, env, generations=50, results_dir="./", model_dir="./",\
-            seeds = [0,1,2]):
-        epds = 4
+    def train(self, env, generations=100, exp_dir="./", exp_name="default_exp",\
+            epds=1, results=None, performance_threshold=float("Inf")):
+
         save_every = 50
 
         total_env_interacts = 0
         t0 = time.time()
 
-        results = {"epoch": [],\
-            "total_env_interacts": [],\
-            "wall_time": [],\
-            "mean_rew": [],\
-            "std_rew": [],\
-            "max_rew": [],\
-            "min_rew": []\
-            }
+        # prepare loggin directories
+        res_dir = os.listdir("./results")
+        mod_dir = os.listdir("./models")
+        
+
+        if exp_dir not in res_dir:
+            os.mkdir("./results/{}".format(exp_dir))
+        if exp_dir not in mod_dir:
+            os.mkdir("./models/{}".format(exp_dir))
+
+        if results is None:
+            results = {"epoch": [],\
+                "total_env_interacts": [],\
+                "wall_time": [],\
+                "mean_rew": [],\
+                "std_rew": [],\
+                "max_rew": [],\
+                "min_rew": []\
+                }
+
+        smooth_fit = 0.0
 
         for generation in range(generations):
             fitness, total_steps = self.get_fitness(env, epds=epds)
@@ -185,19 +198,30 @@ class DHGPopulation():
 
             print("time: {:.3f}, total_env_interact: {}".format(time.time()-t0, total_env_interacts))
             
-            results["epoch"] = generation
-            results["total_env_interacts"] = total_env_interacts
-            results["wall_time"] = time.time() - t0
-            results["mean_rew"] = np.mean(fitness)
-            results["std_rew"] = np.std(fitness)
-            results["max_rew"] = np.max(fitness)
-            results["min_rew"] = np.min(fitness)
+            results["epoch"].append(generation)
+            results["total_env_interacts"].append(total_env_interacts)
+            results["wall_time"].append(time.time() - t0)
+            results["mean_rew"].append(np.mean(fitness))
+            results["std_rew"].append(np.std(fitness))
+            results["max_rew"].append(np.max(fitness))
+            results["min_rew"].append(np.min(fitness))
 
+
+            smooth_fit = 0.75 * smooth_fit + 0.25 * np.max(fitness)  
 
             if generation % save_every == 0:
                 print("saving results and elite agent")
-                np.save(results_dir,results)
-                torch.save(agents.elite_agent.state_dict(), model_dir)
+                np.save("./results/{}/data_{}.npy".format(exp_dir,exp_name),results)
+                torch.save(self.elite_agent.state_dict(), "./models/{}/model_{}.h5".format(exp_dir, exp_name))
+
+            if smooth_fit > performance_threshold:
+                print("performance threshold reached, ending evolution")
+                break
+
+
+        print("saving results and elite agent")
+        np.save("./results/{}/data_{}.npy".format(exp_dir,exp_name),results)
+        torch.save(self.elite_agent.state_dict(), "./models/{}/model_{}.h5".format(exp_dir,exp_name))
 
 class HebbianMLP(nn.Module):
     """
@@ -537,11 +561,11 @@ if __name__ == "__main__":
 #        if step % 10 == 0:
 #            print("loss at step {} = {:.3f}".format(step,loss))
 
-    for my_seed in [0,1,2]:
+    for my_seed in [13, 42, 1337]:
         torch.manual_seed(my_seed)
         np.random.seed(my_seed)
 
-        for clamp_value in [0.0, 3e-1]:
+        for clamp_value in [0.0, 1e-1, 3e-1]:
             env = gym.make("InvertedPendulumSwingupBulletEnv-v0")
             act_dim = 1
             obs_dim = 5
@@ -549,15 +573,16 @@ if __name__ == "__main__":
             agent_fn = HebbianMLP
 
             agents = DHGPopulation(input_dim=obs_dim, output_dim=act_dim, \
-                    agent_fn=agent_fn,clamp_value=3e-1)
+                    agent_fn=agent_fn,clamp_value=clamp_value)
 
+            unique_id = str(hash(time.time()))[0:6]
+
+            exp_dir = "exp{}".format(my_seed,unique_id)
             if clamp_value:
-                model_dir = "models/sd{}_epann_exp_es_000.h5".format(my_seed)
-                results_dir = "results/sd{}_epann_exp_es_000.npy".format(my_seed)
+                exp_name = "epann_sd_{}"
             else:
-                model_dir = "models/sd{}_eann_exp_es_000.h5".format(my_seed)
-                results_dir = "results/sd{}_eann_exp_es_000.npy".format(my_seed)
+                exp_name = "eann_sd_{}"
 
-            agents.train(env, results_dir=results_dir, model_dir=model_dir)
+            agents.train(env, exp_dir=exp_dir, exp_name=exp_name)
 
 

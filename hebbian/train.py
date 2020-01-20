@@ -8,11 +8,13 @@ import matplotlib.pyplot as plt
 import copy
 import time
 import os
+import argparse
 
 import pybullet
 import pybullet_envs
 
-from policies import DirectedHebbianGraph, HebbianMLP
+from policies import DirectedHebbianGraph, HebbianMLP, DHGPopulation
+
 
 def normalize_rewards(rewards):
     return rewards #(rewards - torch.mean(rewards)) / torch.std(rewards)
@@ -66,30 +68,77 @@ def print_stats(epoch, t_rew, t_done, total_env_interacts):
 
     return mean_rew, mean_ep_len, std_rew, max_rew, min_rew
 
+def print_stats_fit(epoch, fitness, total_env_interacts):
+
+    mean_rew = np.mean(fitness) 
+    std_rew = np.std(fitness)
+    max_rew = np.max(fitness)
+    min_rew = np.min(np.min(fitness))
+
+    print("""
+    _________________________________
+    | generation:             {}       
+    | total_env_interacts:  {:.2e}|
+    | mean_rew:             {:.2e}|
+    | std_rew:              {:.2e}|
+    | max_rew:              {:.2e}|
+    | min_rew:              {:.2e}|
+    |_______________________________|
+    """.format(epoch, total_env_interacts, mean_rew, std_rew,\
+            max_rew, min_rew))
 
 
-
-def train_evo():
+def train_evo(args):
 
     # set up hyperparameters/parameters
-    env_name = "InvertedPendulumBulletEnv-v0"
-    hid_dims = [16,16]
-    clamp_value = 0.0
-    steps_per_epoch = 10000
-    epochs = 3000
-    sigma = 0.5
-    gamma = 0.90
-    batch_size = 10000
-    save_every = 1000
+    env_name = args.env_name
+    epds = args.epds
+    epochs = args.gens
+    seeds = args.seeds
+    population_size = args.pop_size
+    clamp_values = args.clamp_values
+    performance_threshold = args.threshold
 
-    # define env, obs and action spaces
-    print("making env", env_name)
-    env = gym.make(env_name)
+    save_every = 50
 
-    obs_dim = env.observation_space.shape[0]
-    act_dim = env.action_space.sample().shape[0]
-    # initialize agent(s)
+    exp_id = str(hash(time.time()))[0:6]
 
+    exp_dir = "exp{}".format(exp_id)
+
+    for my_seed in seeds:
+        torch.manual_seed(my_seed)
+        np.random.seed(my_seed)
+
+        for clamp_value in clamp_values:
+            env = gym.make(env_name)
+            print("making env", env_name)
+            obs_dim = env.observation_space.shape[0]
+            act_dim = env.action_space.sample().shape[0]
+
+            agent_fn = HebbianMLP
+
+            agents = DHGPopulation(input_dim=obs_dim, output_dim=act_dim, \
+                    agent_fn=agent_fn, clamp_value=clamp_value, \
+                    population_size=population_size)
+
+            exp_name = "epann{}_sd_{}".format(str(int(clamp_value*100)),my_seed)
+
+            results = {"epoch": [],\
+                "total_env_interacts": [],\
+                "wall_time": [],\
+                "mean_rew": [],\
+                "std_rew": [],\
+                "max_rew": [],\
+                "min_rew": [],\
+                "env_name": env_name,\
+                "epds": epds,
+                "pop_size": population_size,\
+                "clamp_value": clamp_value,\
+                "performance_threshold": performance_threshold\
+                }
+
+            agents.train(env, exp_dir=exp_dir, exp_name=exp_name, generations=epochs,\
+                    epds=epds, results=results, performance_threshold=performance_threshold)
 
 def train_backprop():
 
@@ -131,7 +180,8 @@ def train_backprop():
             "mean_rew": [],\
             "std_rew": [],\
             "max_rew": [],\
-            "min_rew": []\
+            "min_rew": [],\
+            "env_name": env_name\
             }
 
     for my_seed in [0,1,2]:
@@ -218,5 +268,36 @@ def train_backprop():
 
 
 if __name__ == "__main__":
-    train_evo()
-    train_backprop()
+    parser = argparse.ArgumentParser(description=\
+            "experimental parameters for EPANNS")
+    parser.add_argument("-p", "--pop_size", type=int,\
+            help="training population size", default=64)
+    parser.add_argument("-e", "--epds", type=int,\
+            help="num episodes to get fitness for each agent each generation",\
+            default=4)
+    parser.add_argument("-g", "--gens", type=int,\
+            help="number of generations/epochs to train for",\
+            default=50)
+    parser.add_argument("-s", "--seeds", type=list,\
+            help="random seeds",\
+            default=[13,42,1337])
+    parser.add_argument("-n", "--env_name", type=str,\
+            help="name of environment",\
+            default="InvertedPendulumSwingupBulletEnv-v0")
+    parser.add_argument("-c", "--clamp_values", type=list,\
+            help="clamp values that limit Hebbian trace weighting",
+            default=[0.0, 0.1, 0.3])
+
+    parser.add_argument("-t", "--threshold", type=float,\
+            help="performance threshold for stopping",\
+            default=float("Inf"))
+    parser.add_argument("-v", "--evo", type=bool,\
+            help="Train evo (default,True) or vanilla policy gradient (False)",\
+            default=True)
+
+    args = parser.parse_args()
+
+    if args.evo:
+        train_evo(args)
+    else:
+        train_backprop()
