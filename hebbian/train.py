@@ -105,6 +105,7 @@ def train_evo(args):
 
     exp_dir = "exp{}".format(exp_id)
 
+    gravity = env_name == "LunarLanderContinuous-v2"
     for my_seed in seeds:
         torch.manual_seed(my_seed)
         np.random.seed(my_seed)
@@ -121,7 +122,7 @@ def train_evo(args):
                     agent_fn=agent_fn, clamp_value=clamp_value, \
                     population_size=population_size)
 
-            exp_name = "epann{}_sd_{}".format(str(int(clamp_value*100)),my_seed)
+            exp_name = "epann2_clamp{}_sd_{}".format(str(int(clamp_value*100)),my_seed)
 
             results = {"epoch": [],\
                 "total_env_interacts": [],\
@@ -137,8 +138,10 @@ def train_evo(args):
                 "performance_threshold": performance_threshold\
                 }
 
-            agents.train(env, exp_dir=exp_dir, exp_name=exp_name, generations=epochs,\
-                    epds=epds, results=results, performance_threshold=performance_threshold)
+            agents.train(env, exp_dir=exp_dir, exp_name=exp_name,\
+                    generations=epochs, epds=epds, results=results,\
+                    performance_threshold=performance_threshold,\
+                    gravity=gravity)
 
 def train_backprop():
 
@@ -286,7 +289,7 @@ if __name__ == "__main__":
             default="InvertedPendulumSwingupBulletEnv-v0")
     parser.add_argument("-c", "--clamp_values", type=list,\
             help="clamp values that limit Hebbian trace weighting",
-            default=[0.0, 0.1, 0.3])
+            default=[0.0, 0.3])
 
     parser.add_argument("-t", "--threshold", type=float,\
             help="performance threshold for stopping",\
@@ -297,6 +300,8 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
+    print(args.clamp_values)
+    print(args.gens, args.threshold)
     if args.evo:
         train_evo(args)
     else:

@@ -13,6 +13,8 @@ import os
 import pybullet
 import pybullet_envs
 
+import Box2D
+from Box2D import b2Vec2
 
 class DHGPopulation():
 
@@ -33,30 +35,40 @@ class DHGPopulation():
         self.variance = 1e-1 * torch.ones(self.population[0].total_params)
 
 
-    def get_fitness(self, env, epds=8):
+    def get_fitness(self, env, epds=8, gravity=False):
 
         fitness = []
         complexity = []
         total_steps = 0
+        if gravity:
+            epd_epds = epds
+        else:
+            epd_epds = 1
 
         for agent_idx in range(len(self.population)):
             #obs = flatten_obs(env.reset())
             accumulated_reward = 0.0
-            for epd in range(epds):
+            for epd_epd in range(epd_epds):
+                if gravity:
+                    env.env.world.gravity = b2Vec2(0,\
+                            -4.9 - 9.8*np.random.random(1)[0])
+                for epd in range(epds):
+                    
+                    obs = env.reset()
 
-                obs = env.reset()
+                    self.population[agent_idx].reset_hebbians()
+                    done=False
+                    while not done:
+                        action = self.population[agent_idx].forward(\
+                                torch.Tensor(obs).reshape(1,obs.shape[0]))
+                        action = nn.Tanh()(action)
+                        if action.shape[1] > 1:
+                            action = action.squeeze()
+                        obs, rew, done, info = env.step(action.detach().numpy())
+                        total_steps += 1
+                        accumulated_reward += rew
 
-                self.population[agent_idx].reset_hebbians()
-                done=False
-                while not done:
-                    action = self.population[agent_idx].forward(\
-                            torch.Tensor(obs).reshape(1,obs.shape[0]))
-                    action = nn.Tanh()(action)
-                    obs, rew, done, info = env.step(action.detach().numpy())
-                    total_steps += 1
-                    accumulated_reward += rew
-
-            fitness.append(accumulated_reward/(epds))
+            fitness.append(accumulated_reward/(epds * epd_epds))
 
         return fitness, total_steps
 
@@ -158,7 +170,8 @@ class DHGPopulation():
         self.population.append(self.elite_agent)
 
     def train(self, env, generations=100, exp_dir="./", exp_name="default_exp",\
-            epds=1, results=None, performance_threshold=float("Inf")):
+            epds=1, results=None, performance_threshold=float("Inf"),\
+            gravity=False):
 
         save_every = 50
 
@@ -188,7 +201,8 @@ class DHGPopulation():
         smooth_fit = 0.0
 
         for generation in range(generations):
-            fitness, total_steps = self.get_fitness(env, epds=epds)
+            fitness, total_steps = self.get_fitness(env, epds=epds, \
+                    gravity=gravity)
             total_env_interacts += total_steps
 
             self.update_pop(fitness)
@@ -212,7 +226,7 @@ class DHGPopulation():
             if generation % save_every == 0:
                 print("saving results and elite agent")
                 np.save("./results/{}/data_{}.npy".format(exp_dir,exp_name),results)
-                torch.save(self.elite_agent.state_dict(), "./models/{}/model_{}.h5".format(exp_dir, exp_name))
+                torch.save(self.elite_agent.state_dict(), "./models/{}/model_{}_gen{}.h5".format(exp_dir, exp_name, generation))
 
             if smooth_fit > performance_threshold:
                 print("performance threshold reached, ending evolution")
@@ -221,7 +235,7 @@ class DHGPopulation():
 
         print("saving results and elite agent")
         np.save("./results/{}/data_{}.npy".format(exp_dir,exp_name),results)
-        torch.save(self.elite_agent.state_dict(), "./models/{}/model_{}.h5".format(exp_dir,exp_name))
+        torch.save(self.elite_agent.state_dict(), "./models/{}/model_{}_gen{}.h5".format(exp_dir, exp_name, generation))
 
 class HebbianMLP(nn.Module):
     """
@@ -236,8 +250,10 @@ class HebbianMLP(nn.Module):
 
 
         self.input_dim = input_dim
-        # +1 for the Hebbian trace control variable W
-        self.output_dim = output_dim + 1
+        # +1 for the Hebbian trace control variable W,
+        # +1 for the "Dopamine" output that controls Hebbian trace updates
+        self.output_dim = output_dim + 1 + 1
+
         self.hid_dims = hid_dims
         self.total_params = input_dim * hid_dims[0]\
                 + hid_dims[0] * hid_dims[1]\
@@ -274,20 +290,28 @@ class HebbianMLP(nn.Module):
             self.W = 0.0
         else: 
             self.W = torch.mean(nn.Tanh()(y[:,-2:-1]))
+            self.dopa = torch.mean(nn.Tanh()(y[:,-3:-2]))
 
+            self.e_h12y = (1-self.alpha) * self.e_h12y\
+                    +self.alpha * torch.matmul(h1.T, y_1)
             self.heb_h12y = torch.clamp(self.heb_h12y\
-                + self.alpha * torch.matmul(h1.T, y_1),\
-                -self.clamp_value, self.clamp_value)
+                    + self.dopa * self.e_h12y, 
+                    -self.clamp_value, self.clamp_value)
 
+            self.e_h02h1 = (1-self.alpha) * self.e_h02h1\
+                    +self.alpha * torch.matmul(h0.T, h1_0)
             self.heb_h02h1 = torch.clamp(self.heb_h02h1\
-                + self.alpha * torch.matmul(h0.T, h1_0),\
-                -self.clamp_value, self.clamp_value)
+                    + self.dopa * self.e_h02h1,
+                    -self.clamp_value, self.clamp_value)
 
+            self.e_x2h0 = (1-self.alpha) * self.e_x2h0\
+                    +self.alpha * torch.matmul(x.T, h0_x)
             self.heb_x2h0 = torch.clamp(self.heb_x2h0\
-                + self.alpha * torch.matmul(x.T, h0_x),\
-                -self.clamp_value, self.clamp_value)
+                    + self.dopa * self.e_x2h0,
+                    -self.clamp_value, self.clamp_value)
 
-        y = y[:,:-1]
+        y = y[:,:-2]
+
 
         return y
 
@@ -343,16 +367,23 @@ class HebbianMLP(nn.Module):
 
     def reset_hebbians(self):
         # Hebbian initializations
+        
+        self.e_x2h0 = torch.zeros(self.input_dim, self.hid_dims[0],\
+                requires_grad=False)
+        self.e_h02h1 = torch.zeros(self.hid_dims[0], self.hid_dims[1],\
+                requires_grad=False)
+        self.e_h12y = torch.zeros(self.hid_dims[1], self.output_dim,\
+                requires_grad=False)
+
         self.heb_x2h0 = torch.zeros(self.input_dim, self.hid_dims[0],\
                 requires_grad=False)
-
         self.heb_h02h1 = torch.zeros(self.hid_dims[0], self.hid_dims[1],\
                 requires_grad=False)
-
         self.heb_h12y = torch.zeros(self.hid_dims[1], self.output_dim,\
                 requires_grad=False)
 
         self.W = torch.zeros(1,1)
+        self.dopa = torch.zeros(1,1)
 
 class DirectedHebbianGraph(nn.Module):
 
@@ -431,7 +462,8 @@ class DirectedHebbianGraph(nn.Module):
         # any final activation function is external to the model for now
 
         self.W = torch.mean(nn.Tanh()(y[:,-2:-1]))
-        y = y[:,:-1]
+        self.dopa = torch.mean(nn.Tanh()(y[:,-3:-2]))
+        y = y[:,:-2]
 
         return y
 
@@ -565,7 +597,7 @@ if __name__ == "__main__":
         torch.manual_seed(my_seed)
         np.random.seed(my_seed)
 
-        for clamp_value in [0.0, 1e-1, 3e-1]:
+        for clamp_value in [0.0, 3e-1]:
             env = gym.make("InvertedPendulumSwingupBulletEnv-v0")
             act_dim = 1
             obs_dim = 5
@@ -579,9 +611,9 @@ if __name__ == "__main__":
 
             exp_dir = "exp{}".format(my_seed,unique_id)
             if clamp_value:
-                exp_name = "epann_sd_{}"
+                exp_name = "epann2_sd_{}"
             else:
-                exp_name = "eann_sd_{}"
+                exp_name = "eann2_sd_{}"
 
             agents.train(env, exp_dir=exp_dir, exp_name=exp_name)
 
