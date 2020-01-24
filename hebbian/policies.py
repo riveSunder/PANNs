@@ -15,6 +15,7 @@ import pybullet_envs
 
 import Box2D
 from Box2D import b2Vec2
+import pickle
 
 class DHGPopulation():
 
@@ -45,12 +46,14 @@ class DHGPopulation():
         else:
             epd_epds = 1
 
+
         for agent_idx in range(len(self.population)):
             #obs = flatten_obs(env.reset())
             accumulated_reward = 0.0
             for epd_epd in range(epd_epds):
                 if gravity:
-                    env.env.world.gravity = b2Vec2(0,\
+                    env.env.world.gravity = b2Vec2(\
+                            1e-1 * np.random.randn(1)[0],\
                             -4.9 - 9.8*np.random.random(1)[0])
                 for epd in range(epds):
                     
@@ -230,6 +233,35 @@ class DHGPopulation():
 
             if smooth_fit > performance_threshold:
                 print("performance threshold reached, ending evolution")
+                g_reward = []
+                for g in [(0,-10), (-.3,-20), (.3,20)]:
+                    env.env.world.gravity = b2Vec2(g[0],g[1])
+                    test_reward = []
+                    for epd in range(8):
+                        obs = env.reset()
+                        done = False
+                        rew_acc = 0.
+                        while not done:
+                            action = self.elite_agent.forward(\
+                                    torch.Tensor(obs).reshape(1,obs.shape[0]))
+                            action = nn.Tanh()(action)
+                            if action.shape[1] > 1:
+                                action = action.squeeze()
+                            obs, rew, done, info = env.step(\
+                                    action.detach().numpy())
+                            rew_acc += rew
+
+                        test_reward.append(rew_acc)
+                    print("evaluation run with gravity {}, reward:"\
+                            .format(g), test_reward)
+                    g_reward.append(test_reward)
+                env.close()
+
+#                with open("results/{}/lunarlander{}.pickle"\
+#                        .format(exp_dir, exp_name), "wb"):
+#                    pickle.dump(g_reward, f)
+                np.save("results/{}/ll_eval{}.npy".format(\
+                        exp_dir, exp_name), g_reward)
                 break
 
 

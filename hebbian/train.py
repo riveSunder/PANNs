@@ -289,7 +289,7 @@ if __name__ == "__main__":
             default="InvertedPendulumSwingupBulletEnv-v0")
     parser.add_argument("-c", "--clamp_values", type=list,\
             help="clamp values that limit Hebbian trace weighting",
-            default=[0.0, 0.3])
+            default=[0.5, 0.0])
 
     parser.add_argument("-t", "--threshold", type=float,\
             help="performance threshold for stopping",\
