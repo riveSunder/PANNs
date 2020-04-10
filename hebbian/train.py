@@ -10,6 +10,12 @@ import time
 import os
 import argparse
 
+#mpi paralellization stuff
+from mpi4py import MPI
+comm = MPI.COMM_WORLD
+import subprocess
+import sys
+
 import pybullet
 import pybullet_envs
 
@@ -111,8 +117,11 @@ def train_evo(args):
         np.random.seed(my_seed)
 
         for clamp_value in clamp_values:
+
+            print("making env {}".format(env_name ))
+
             env = gym.make(env_name)
-            print("making env", env_name)
+
             obs_dim = env.observation_space.shape[0]
             act_dim = env.action_space.sample().shape[0]
 
@@ -123,6 +132,7 @@ def train_evo(args):
                     population_size=population_size)
 
             exp_name = "epann2_clamp{}_sd_{}".format(str(int(clamp_value*100)),my_seed)
+
 
             results = {"epoch": [],\
                 "total_env_interacts": [],\
@@ -268,6 +278,163 @@ def train_backprop():
                         .format(exp_id),results)
                 torch.save(agent.state_dict(),"./models/{}_epoch_{}.h5"\
                         .format(exp_id, epoch)) 
+def mpi_fork(n):
+  """Re-launches the current script with workers
+  Returns "parent" for original parent, "child" for MPI children
+  (from https://github.com/google/brain-tokyo-workshop/tree/master/WANNRelease, 
+  which is in turn from https://github.com/garymcintire/mpi_util/)
+  """
+  if n<=1:
+    return "child"
+
+  if os.getenv("IN_MPI") is None:
+    env = os.environ.copy()
+    env.update(
+      MKL_NUM_THREADS="1",
+      OMP_NUM_THREADS="1",
+      IN_MPI="1"
+    )
+    print( ["mpirun", "-np", str(n), sys.executable] + sys.argv)
+    subprocess.check_call(["mpirun", "-np", str(n), sys.executable] \
+        +['-u']+ sys.argv, env=env)
+    return "parent"
+  else:
+    global nWorker, rank
+    nWorker = comm.Get_size()
+    rank = comm.Get_rank()
+    #print('assigning the rank and nworkers', nWorker, rank)
+    return "child"
+
+def mantle(args):
+
+
+    env_name = args.env_name
+    epds = args.epds
+    epochs = args.gens
+    seeds = args.seeds
+    population_size = args.pop_size
+    clamp_values = args.clamp_values
+
+    agent_fn = HebbianMLP
+
+    performance_threshold = args.threshold
+
+    save_every = 50
+
+    exp_id = str(hash(time.time()))[0:6]
+
+    exp_dir = "exp{}".format(exp_id)
+
+    gravity = env_name == "LunarLanderContinuous-v2"
+    for my_seed in seeds:
+
+        torch.manual_seed(my_seed)
+        np.random.seed(my_seed)
+
+        for clamp_value in [clamp_values[0]]:
+
+            print("making env {}".format(env_name ))
+
+            env = gym.make(env_name)
+
+            obs_dim = env.observation_space.shape[0]
+            act_dim = env.action_space.sample().shape[0]
+
+
+            agent = DHGPopulation(input_dim=obs_dim, output_dim=act_dim, \
+                    agent_fn=agent_fn, clamp_value=clamp_value, \
+                    population_size=population_size)
+
+            exp_name = "epann2_clamp{}_sd_{}".format(str(int(clamp_value*100)),my_seed)
+
+            results = {"epoch": [],\
+                "total_env_interacts": [],\
+                "wall_time": [],\
+                "mean_rew": [],\
+                "std_rew": [],\
+                "max_rew": [],\
+                "min_rew": [],\
+                "env_name": env_name,\
+                "epds": epds,
+                "pop_size": population_size,\
+                "clamp_value": clamp_value,\
+                "performance_threshold": performance_threshold\
+                }
+
+            t0 = time.time()
+            for generation in range(epochs): 
+
+                bb = 0
+                fitness = []
+                total_steps =0
+
+                t1 = time.time()
+
+                # delegate rollouts to arm processes
+
+                while bb <= population_size: # - nWorker:
+                    
+                    # TODO: workers will also need to know clamp_value
+
+                    pop_left = population_size - bb
+                    for cc in range(1, min(nWorker, 1+pop_left)):
+                        comm.send(agent.population[bb+cc-1], dest=cc)
+                    
+                    for cc in range(1, min(nWorker, 1+pop_left)):
+                        #comm.send(agent.population[bb+cc-1], dest=cc)
+                        fit = comm.recv(source=cc)
+                        fitness.extend(fit[0])
+                        total_steps += fit[1]
+
+                    bb += cc
+
+                agent.update_pop(fitness)
+
+
+                print("gen {} mean fitness {:.3f}/ max {:.3f} , time elapsed/per gen {:.2f}/{:.2f}".\
+                        format(generation, np.mean(fitness), np.max(fitness),\
+                        time.time()-t0, (time.time() - t0)/(generation+1)))
+
+    
+def arm(args):
+
+    env_name = args.env_name
+
+    fickle_gravity = "LunarLander" in env_name
+
+    env_name = args.env_name
+    epds = args.epds
+    clamp_values = args.clamp_values
+
+    agent_fn = HebbianMLP
+
+    population_size = 1
+
+    print("making env {}".format(env_name ))
+    env = gym.make(env_name)
+
+    obs_dim = env.observation_space.shape[0]
+    act_dim = env.action_space.sample().shape[0]
+
+    clamp_value = clamp_values[0]
+
+    agent = DHGPopulation(input_dim=obs_dim, output_dim=act_dim, \
+            agent_fn=agent_fn, clamp_value=clamp_value, \
+            population_size=population_size)
+
+    while True:
+
+        my_policy = comm.recv(source=0)
+
+        if my_policy == 0:
+            print("worker {} shutting down".format(rank))
+            break
+
+        agent.population = [my_policy]
+
+        fitness = agent.get_fitness(env, epds=epds, gravity=fickle_gravity)
+
+        comm.send(fitness, dest=0)
 
 
 if __name__ == "__main__":
@@ -277,7 +444,7 @@ if __name__ == "__main__":
             help="training population size", default=64)
     parser.add_argument("-e", "--epds", type=int,\
             help="num episodes to get fitness for each agent each generation",\
-            default=4)
+            default=8)
     parser.add_argument("-g", "--gens", type=int,\
             help="number of generations/epochs to train for",\
             default=50)
@@ -290,19 +457,22 @@ if __name__ == "__main__":
     parser.add_argument("-c", "--clamp_values", type=list,\
             help="clamp values that limit Hebbian trace weighting",
             default=[0.5, 0.0])
-
     parser.add_argument("-t", "--threshold", type=float,\
             help="performance threshold for stopping",\
             default=float("Inf"))
     parser.add_argument("-v", "--evo", type=bool,\
             help="Train evo (default,True) or vanilla policy gradient (False)",\
             default=True)
+    parser.add_argument("-w", "--num_workers", type=int,\
+            help="number of cpu threads to use",\
+            default=4)
 
     args = parser.parse_args()
 
-    print(args.clamp_values)
-    print(args.gens, args.threshold)
-    if args.evo:
-        train_evo(args)
-    else:
-        train_backprop()
+    if mpi_fork(args.num_workers+1) == "parent":
+        os._exit(0)
+
+    if rank == 0:
+        mantle(args)
+    else: 
+        arm(args)
