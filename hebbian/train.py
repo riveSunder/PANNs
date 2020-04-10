@@ -331,7 +331,7 @@ def mantle(args):
         torch.manual_seed(my_seed)
         np.random.seed(my_seed)
 
-        for clamp_value in [clamp_values[0]]:
+        for clamp_value in clamp_values:
 
             print("making env {}".format(env_name ))
 
@@ -378,7 +378,7 @@ def mantle(args):
 
                     pop_left = population_size - bb
                     for cc in range(1, min(nWorker, 1+pop_left)):
-                        comm.send(agent.population[bb+cc-1], dest=cc)
+                        comm.send([agent.population[bb+cc-1], clamp_value], dest=cc)
                     
                     for cc in range(1, min(nWorker, 1+pop_left)):
                         #comm.send(agent.population[bb+cc-1], dest=cc)
@@ -395,6 +395,8 @@ def mantle(args):
                         format(generation, np.mean(fitness), np.max(fitness),\
                         time.time()-t0, (time.time() - t0)/(generation+1)))
 
+    for cc in range(1,nWorker):
+        comm.send([0,0], dest=cc)
     
 def arm(args):
 
@@ -412,7 +414,7 @@ def arm(args):
 
     print("making env {}".format(env_name ))
     env = gym.make(env_name)
-
+    
     obs_dim = env.observation_space.shape[0]
     act_dim = env.action_space.sample().shape[0]
 
@@ -424,13 +426,14 @@ def arm(args):
 
     while True:
 
-        my_policy = comm.recv(source=0)
+        [my_policy, clamp_value]  = comm.recv(source=0)
 
         if my_policy == 0:
             print("worker {} shutting down".format(rank))
             break
 
         agent.population = [my_policy]
+        agent.clamp_value = clamp_value
 
         fitness = agent.get_fitness(env, epds=epds, gravity=fickle_gravity)
 
@@ -450,13 +453,13 @@ if __name__ == "__main__":
             default=50)
     parser.add_argument("-s", "--seeds", type=list,\
             help="random seeds",\
-            default=[13,42,1337])
+            default=[42])
     parser.add_argument("-n", "--env_name", type=str,\
             help="name of environment",\
             default="InvertedPendulumSwingupBulletEnv-v0")
     parser.add_argument("-c", "--clamp_values", type=list,\
             help="clamp values that limit Hebbian trace weighting",
-            default=[0.5, 0.0])
+            default=[0.0, 0.5])
     parser.add_argument("-t", "--threshold", type=float,\
             help="performance threshold for stopping",\
             default=float("Inf"))

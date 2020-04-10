@@ -161,7 +161,6 @@ class DHGPopulation():
 
         covariance += 1e-10 * torch.eye(elite_params.shape[1])
         covariance = torch.clamp(covariance,-1e2,1e2)
-        print(torch.mean(covariance))
 
         alpha = 1e-1
         mean = mean / keep
