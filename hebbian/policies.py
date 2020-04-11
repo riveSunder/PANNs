@@ -52,6 +52,7 @@ class DHGPopulation():
             accumulated_reward = 0.0
             for epd_epd in range(epd_epds):
                 if gravity:
+                    
                     env.env.world.gravity = b2Vec2(\
                             1e-1 * np.random.randn(1)[0],\
                             -4.9 - 9.8*np.random.random(1)[0])

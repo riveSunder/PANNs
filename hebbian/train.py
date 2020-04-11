@@ -74,7 +74,7 @@ def print_stats(epoch, t_rew, t_done, total_env_interacts):
 
     return mean_rew, mean_ep_len, std_rew, max_rew, min_rew
 
-def print_stats_fit(epoch, fitness, total_env_interacts):
+def print_stats_fit(epoch, fitness, total_env_interacts, time_elapsed, time_per):
 
     mean_rew = np.mean(fitness) 
     std_rew = np.std(fitness)
@@ -89,9 +89,11 @@ def print_stats_fit(epoch, fitness, total_env_interacts):
     | std_rew:              {:.2e}|
     | max_rew:              {:.2e}|
     | min_rew:              {:.2e}|
+    | total_time:           {:.2e}|
+    | time/epd:             {:.2e}|
     |_______________________________|
     """.format(epoch, total_env_interacts, mean_rew, std_rew,\
-            max_rew, min_rew))
+            max_rew, min_rew, time_elapsed, time_per))
 
 
 def train_evo(args):
@@ -325,6 +327,14 @@ def mantle(args):
 
     exp_dir = "exp{}".format(exp_id)
 
+    res_dir = os.listdir("./results")
+    mod_dir = os.listdir("./models")
+    
+    if exp_dir not in res_dir:
+        os.mkdir("./results/{}".format(exp_dir))
+    if exp_dir not in mod_dir:
+        os.mkdir("./models/{}".format(exp_dir))
+
     gravity = env_name == "LunarLanderContinuous-v2"
     for my_seed in seeds:
 
@@ -346,6 +356,7 @@ def mantle(args):
                     population_size=population_size)
 
             exp_name = "epann2_clamp{}_sd_{}".format(str(int(clamp_value*100)),my_seed)
+
 
             results = {"epoch": [],\
                 "total_env_interacts": [],\
@@ -385,15 +396,31 @@ def mantle(args):
                         fit = comm.recv(source=cc)
                         fitness.extend(fit[0])
                         total_steps += fit[1]
-
                     bb += cc
 
                 agent.update_pop(fitness)
+                time_elapsed = time.time()-t0
+                time_per = (time.time() - t1) / (args.epds * agent.population_size)
+                results["epoch"].append(generation)
+                results["total_env_interacts"].append(total_steps)
+                results["wall_time"].append(time_elapsed)
+                results["mean_rew"].append(np.mean(fitness))
+                results["std_rew"].append(np.std(fitness))
+                results["min_rew"].append(np.min(fitness))
+                results["max_rew"].append(np.max(fitness))
 
+                if generation % save_every == 0:
+                    np.save("./results/{}/data_{}.npy".format(exp_dir,exp_name),results)
+                    torch.save(agent.elite_agent.state_dict(), "./models/{}/model_{}_gen{}.h5".format(exp_dir, exp_name, generation))
 
-                print("gen {} mean fitness {:.3f}/ max {:.3f} , time elapsed/per gen {:.2f}/{:.2f}".\
-                        format(generation, np.mean(fitness), np.max(fitness),\
-                        time.time()-t0, (time.time() - t0)/(generation+1)))
+                    epoch = generation
+                    print_stats_fit(epoch, fitness, total_steps, time_elapsed, time_per)
+
+    np.save("./results/{}/data_{}.npy".format(exp_dir,exp_name),results)
+    torch.save(agent.elite_agent.state_dict(), "./models/{}/model_{}_gen{}.h5".format(exp_dir, exp_name, generation))
+
+    epoch = generation
+    print_stats_fit(epoch, fitness, total_steps, time_elapsed, time_per)
 
     for cc in range(1,nWorker):
         comm.send([0,0], dest=cc)
@@ -451,13 +478,13 @@ if __name__ == "__main__":
     parser.add_argument("-g", "--gens", type=int,\
             help="number of generations/epochs to train for",\
             default=50)
-    parser.add_argument("-s", "--seeds", type=list,\
+    parser.add_argument("-s", "--seeds", nargs='+', type=int,\
             help="random seeds",\
             default=[42])
     parser.add_argument("-n", "--env_name", type=str,\
             help="name of environment",\
             default="InvertedPendulumSwingupBulletEnv-v0")
-    parser.add_argument("-c", "--clamp_values", type=list,\
+    parser.add_argument("-c", "--clamp_values", nargs='+', type=float,\
             help="clamp values that limit Hebbian trace weighting",
             default=[0.0, 0.5])
     parser.add_argument("-t", "--threshold", type=float,\
@@ -472,8 +499,10 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
+
     if mpi_fork(args.num_workers+1) == "parent":
         os._exit(0)
+
 
     if rank == 0:
         mantle(args)
