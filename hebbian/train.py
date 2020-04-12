@@ -74,12 +74,13 @@ def print_stats(epoch, t_rew, t_done, total_env_interacts):
 
     return mean_rew, mean_ep_len, std_rew, max_rew, min_rew
 
-def print_stats_fit(epoch, fitness, total_env_interacts, time_elapsed, time_per):
+def print_stats_fit(epoch, fitness, total_env_interacts, time_elapsed, time_per, clamp=None):
 
     mean_rew = np.mean(fitness) 
     std_rew = np.std(fitness)
     max_rew = np.max(fitness)
     min_rew = np.min(np.min(fitness))
+    clamp_value = "n/a" if clamp == None else clamp
 
     print("""
     _________________________________
@@ -91,9 +92,10 @@ def print_stats_fit(epoch, fitness, total_env_interacts, time_elapsed, time_per)
     | min_rew:              {:.2e}|
     | total_time:           {:.2e}|
     | time/epd:             {:.2e}|
+    | clamp value:          {}| 
     |_______________________________|
     """.format(epoch, total_env_interacts, mean_rew, std_rew,\
-            max_rew, min_rew, time_elapsed, time_per))
+            max_rew, min_rew, time_elapsed, time_per, clamp_value))
 
 
 def train_evo(args):
@@ -414,7 +416,7 @@ def mantle(args):
                     torch.save(agent.elite_agent.state_dict(), "./models/{}/model_{}_gen{}.h5".format(exp_dir, exp_name, generation))
 
                     epoch = generation
-                    print_stats_fit(epoch, fitness, total_steps, time_elapsed, time_per)
+                    print_stats_fit(epoch, fitness, total_steps, time_elapsed, time_per, clamp=clamp)
 
             epoch = generation
             print_stats_fit(epoch, fitness, total_steps, time_elapsed, time_per)
