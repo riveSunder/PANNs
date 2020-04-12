@@ -416,11 +416,11 @@ def mantle(args):
                     epoch = generation
                     print_stats_fit(epoch, fitness, total_steps, time_elapsed, time_per)
 
-    np.save("./results/{}/data_{}.npy".format(exp_dir,exp_name),results)
-    torch.save(agent.elite_agent.state_dict(), "./models/{}/model_{}_gen{}.h5".format(exp_dir, exp_name, generation))
+            epoch = generation
+            print_stats_fit(epoch, fitness, total_steps, time_elapsed, time_per)
 
-    epoch = generation
-    print_stats_fit(epoch, fitness, total_steps, time_elapsed, time_per)
+            np.save("./results/{}/data_{}.npy".format(exp_dir,exp_name),results)
+            torch.save(agent.elite_agent.state_dict(), "./models/{}/model_{}_gen{}.h5".format(exp_dir, exp_name, generation))
 
     for cc in range(1,nWorker):
         comm.send([0,0], dest=cc)
