@@ -83,17 +83,18 @@ def print_stats_fit(epoch, fitness, total_env_interacts, time_elapsed, time_per,
     clamp_value = "n/a" if clamp == None else clamp
 
     print("""
-    _________________________________
+    ___________________________________
+    |                                  |
     | generation:             {}       
-    | total_env_interacts:  {:.2e}|
-    | mean_rew:             {:.2e}|
-    | std_rew:              {:.2e}|
-    | max_rew:              {:.2e}|
-    | min_rew:              {:.2e}|
-    | total_time:           {:.2e}|
-    | time/epd:             {:.2e}|
+    | total_env_interacts:  {:.2e}
+    | mean_rew:             {:.2e}
+    | std_rew:              {:.2e}
+    | max_rew:              {:.2e}
+    | min_rew:              {:.2e}
+    | total_time:           {:.2e}
+    | time/epd:             {:.2e}
     | clamp value:          {}| 
-    |_______________________________|
+    |__________________________________|
     """.format(epoch, total_env_interacts, mean_rew, std_rew,\
             max_rew, min_rew, time_elapsed, time_per, clamp_value))
 
@@ -416,7 +417,8 @@ def mantle(args):
                     torch.save(agent.elite_agent.state_dict(), "./models/{}/model_{}_gen{}.h5".format(exp_dir, exp_name, generation))
 
                     epoch = generation
-                    print_stats_fit(epoch, fitness, total_steps, time_elapsed, time_per, clamp=clamp)
+                    print(my_seed)
+                    print_stats_fit(epoch, fitness, total_steps, time_elapsed, time_per, clamp=clamp_value)
 
             epoch = generation
             print_stats_fit(epoch, fitness, total_steps, time_elapsed, time_per)

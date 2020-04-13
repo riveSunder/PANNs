@@ -42,11 +42,13 @@ class DHGPopulation():
         complexity = []
         total_steps = 0
         if gravity:
-            epd_epds = epds
+            # two runs at each gravity
+            epd_epds = 2
         else:
             epd_epds = 1
 
 
+        
         for agent_idx in range(len(self.population)):
             #obs = flatten_obs(env.reset())
             accumulated_reward = 0.0
@@ -54,23 +56,29 @@ class DHGPopulation():
                 if gravity:
                     
                     env.env.world.gravity = b2Vec2(\
-                            1e-1 * np.random.randn(1)[0],\
+                            2e-1 * np.random.randn(1)[0],\
                             -4.9 - 9.8*np.random.random(1)[0])
+                
+
                 for epd in range(epds):
                     
                     obs = env.reset()
 
                     self.population[agent_idx].reset_hebbians()
                     done=False
+
                     while not done:
                         action = self.population[agent_idx].forward(\
                                 torch.Tensor(obs).reshape(1,obs.shape[0]))
                         action = nn.Tanh()(action)
                         if action.shape[1] > 1:
                             action = action.squeeze()
+
                         obs, rew, done, info = env.step(action.detach().numpy())
+
                         total_steps += 1
                         accumulated_reward += rew
+                        
 
             fitness.append(accumulated_reward/(epds * epd_epds))
 
