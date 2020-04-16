@@ -283,6 +283,7 @@ def train_backprop():
                         .format(exp_id),results)
                 torch.save(agent.state_dict(),"./models/{}_epoch_{}.h5"\
                         .format(exp_id, epoch)) 
+
 def mpi_fork(n):
   """Re-launches the current script with workers
   Returns "parent" for original parent, "child" for MPI children
@@ -415,6 +416,7 @@ def mantle(args):
                 if generation % save_every == 0:
                     np.save("./results/{}/data_{}.npy".format(exp_dir,exp_name),results)
                     torch.save(agent.elite_agent.state_dict(), "./models/{}/model_{}_gen{}.h5".format(exp_dir, exp_name, generation))
+
 
                     epoch = generation
                     print(my_seed)

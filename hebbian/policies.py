@@ -359,51 +359,27 @@ class HebbianMLP(nn.Module):
         """
         initialize parameters from a mean and covariance matrix
         """
-        if self.requires_grad:
 
-            self.x2h0 = nn.Parameter(torch.randn(self.input_dim,\
-                    self.hid_dims[0])\
-                    * np.sqrt(2./self.input_dim),\
-                    requires_grad = self.requires_grad)
+        self.x2h0 = nn.Parameter(torch.randn(self.input_dim,\
+                self.hid_dims[0])\
+                * np.sqrt(2./self.input_dim),\
+                requires_grad = self.requires_grad)
 
-            self.h02h1 = nn.Parameter(torch.randn(self.hid_dims[0],\
-                    self.hid_dims[1])\
-                    * np.sqrt(2./self.hid_dims[0]),\
-                    requires_grad = self.requires_grad)
+        self.h02h1 = nn.Parameter(torch.randn(self.hid_dims[0],\
+                self.hid_dims[1])\
+                * np.sqrt(2./self.hid_dims[0]),\
+                requires_grad = self.requires_grad)
 
-            self.h12y = nn.Parameter(torch.randn(self.hid_dims[1],\
-                    self.output_dim)\
-                    * np.sqrt(2./self.hid_dims[1]),\
-                    requires_grad = self.requires_grad)
-        else:
-            assert variance is not None, "specify variance"
-
-            # for NES
-            #params = torch.normal(mean, variance)
-            # for cma
-            #m = torch.distributions.multivariate_normal.MultivariateNormal
-            #dist = m(mean, variance)
-            params = np.random.multivariate_normal(mean.detach().numpy(),\
-                    variance.detach().numpy())
-
-            params = torch.Tensor(params)
-
-            dim_x2h0 = self.input_dim * self.hid_dims[0]
-            self.x2h0 = nn.Parameter(params[0:dim_x2h0],\
-                    requires_grad=self.requires_grad)\
-                    .reshape(self.input_dim, self.hid_dims[0])
-
-            dim_h02h1 = self.hid_dims[0] * self.hid_dims[1] + dim_x2h0
-            self.h02h1 = nn.Parameter(params[dim_x2h0:dim_h02h1],\
-                    requires_grad=self.requires_grad)\
-                    .reshape(self.hid_dims[0], self.hid_dims[1])
-
-            dim_h12y = self.hid_dims[1] * self.output_dim +  dim_h02h1
-            self.h12y = nn.Parameter(params[dim_h02h1:dim_h12y],\
-                    requires_grad=self.requires_grad)\
-                    .reshape(self.hid_dims[1], self.output_dim)
+        self.h12y = nn.Parameter(torch.randn(self.hid_dims[1],\
+                self.output_dim)\
+                * np.sqrt(2./self.hid_dims[1]),\
+                requires_grad = self.requires_grad)
 
         self.reset_hebbians()
+
+        if not self.requires_grad:
+            for param in self.parameters():
+                param.requires_grad=False
 
     def reset_hebbians(self):
         # Hebbian initializations
@@ -422,8 +398,8 @@ class HebbianMLP(nn.Module):
         self.heb_h12y = torch.zeros(self.hid_dims[1], self.output_dim,\
                 requires_grad=False)
 
-        self.W = torch.zeros(1,1)
-        self.dopa = torch.zeros(1,1)
+        self.W = torch.zeros(1,1, requires_grad=False)
+        self.dopa = torch.zeros(1,1, requires_grad=False)
 
 class DirectedHebbianGraph(nn.Module):
 
