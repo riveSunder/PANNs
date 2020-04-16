@@ -360,22 +360,34 @@ class HebbianMLP(nn.Module):
         initialize parameters from a mean and covariance matrix
         """
 
-        self.x2h0 = nn.Parameter(torch.randn(self.input_dim,\
-                self.hid_dims[0])\
-                * np.sqrt(2./self.input_dim),\
-                requires_grad = self.requires_grad)
+        params = np.random.multivariate_normal(mean.detach().numpy(),\
+                variance.detach().numpy())
 
-        self.h02h1 = nn.Parameter(torch.randn(self.hid_dims[0],\
-                self.hid_dims[1])\
-                * np.sqrt(2./self.hid_dims[0]),\
-                requires_grad = self.requires_grad)
+        params = nn.Parameter(torch.Tensor(params))
 
-        self.h12y = nn.Parameter(torch.randn(self.hid_dims[1],\
-                self.output_dim)\
-                * np.sqrt(2./self.hid_dims[1]),\
-                requires_grad = self.requires_grad)
+        dim_x2h0 = self.input_dim * self.hid_dims[0]
+        dim_h02h1 = self.hid_dims[0] * self.hid_dims[1] + dim_x2h0
+        dim_h12y = self.hid_dims[1] * self.output_dim + dim_h02h1
+
+        try:
+            del self.x2h0 
+            del self.h02h1
+            del self.h12y
+        except:
+            pass
+
+        self.x2h0 = nn.Parameter(params[0:dim_x2h0]).reshape(\
+                self.input_dim, self.hid_dims[0])
+        self.h02h1 = nn.Parameter(params[dim_x2h0:dim_h02h1]).reshape(\
+                self.hid_dims[0], self.hid_dims[1])
+        self.h12y = nn.Parameter(params[dim_h02h1:dim_h12y]).reshape(\
+                self.hid_dims[1], self.output_dim)
 
         self.reset_hebbians()
+
+        self.x2h0 = nn.Parameter(self.x2h0)
+        self.h02h1 = nn.Parameter(self.h02h1)
+        self.h12y = nn.Parameter(self.h12y)
 
         if not self.requires_grad:
             for param in self.parameters():

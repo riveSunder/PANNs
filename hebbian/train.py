@@ -342,10 +342,11 @@ def mantle(args):
     gravity = env_name == "LunarLanderContinuous-v2"
     for my_seed in seeds:
 
-        torch.manual_seed(my_seed)
-        np.random.seed(my_seed)
 
         for clamp_value in clamp_values:
+
+            torch.manual_seed(my_seed)
+            np.random.seed(my_seed)
 
             print("making env {}".format(env_name ))
 
@@ -386,7 +387,6 @@ def mantle(args):
                 t1 = time.time()
 
                 # delegate rollouts to arm processes
-
                 while bb <= population_size: # - nWorker:
                     
                     # TODO: workers will also need to know clamp_value
