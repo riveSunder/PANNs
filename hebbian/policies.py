@@ -43,11 +43,15 @@ class DHGPopulation():
         total_steps = 0
         if gravity:
             # two runs at each gravity
-            epd_epds = 2
+            epd_epds = 3
         else:
             epd_epds = 1
 
 
+        g_x = 0.0
+        g_y = -1.625
+        g_std_y = - g_y/2
+        g_std_x = 1e-1
         
         for agent_idx in range(len(self.population)):
             #obs = flatten_obs(env.reset())
@@ -56,8 +60,8 @@ class DHGPopulation():
                 if gravity:
                     
                     env.env.world.gravity = b2Vec2(\
-                            2e-1 * np.random.randn(1)[0],\
-                            -4.9 - 9.8*np.random.random(1)[0])
+                            g_x + g_std_x * np.random.randn(1)[0],\
+                            g_y - g_std_y * np.random.random(1)[0])
                 
 
                 for epd in range(epds):
@@ -359,6 +363,10 @@ class HebbianMLP(nn.Module):
         """
         initialize parameters from a mean and covariance matrix
         """
+
+        if mean is None:
+            mean = torch.zeros((self.total_params))
+            variance = torch.eye((self.total_params))
 
         params = np.random.multivariate_normal(mean.detach().numpy(),\
                 variance.detach().numpy())
