@@ -118,10 +118,11 @@ def train_evo(args):
 
     gravity = env_name == "LunarLanderContinuous-v2"
     for my_seed in seeds:
-        torch.manual_seed(my_seed)
-        np.random.seed(my_seed)
 
         for clamp_value in clamp_values:
+
+            torch.manual_seed(my_seed)
+            np.random.seed(my_seed)
 
             print("making env {}".format(env_name ))
 
