@@ -6,7 +6,7 @@ gym==0.17.1
 kiwisolver==1.2.0
 matplotlib==3.2.1
 mpi4py==3.0.3
-numpy==1.18.3
+numpy==1.22.0
 pkg-resources==0.0.0
 pybullet==2.7.3
 pyglet==1.5.0
